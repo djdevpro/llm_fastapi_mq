@@ -1,10 +1,26 @@
-# LLM Stream + RabbitMQ
+# 🚀 LLM Stream + RabbitMQ
 
-POC de streaming LLM avec découplage via RabbitMQ. Permet de décharger le streaming des réponses LLM du serveur principal vers des workers indépendants.
+POC de streaming LLM **haute performance** avec découplage via RabbitMQ. Gère des centaines d'utilisateurs simultanés grâce à une architecture distribuée.
 
-## Architecture
+[![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://python.org)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.124-green.svg)](https://fastapi.tiangolo.com)
+[![Docker](https://img.shields.io/badge/Docker-ready-blue.svg)](https://docker.com)
+
+## ✨ Fonctionnalités
+
+- 🚀 **Streaming LLM** via OpenAI API (gpt-4o-mini)
+- 📡 **RabbitMQ** pour le découplage producteur/consommateur
+- 🔄 **SSE** (Server-Sent Events) pour le streaming temps réel
+- 🐳 **Docker** avec auto-scaling des workers
+- ⚡ **Mode async** : traite 100+ requêtes simultanées
+- 🧪 **Tests pytest** inclus pour valider le parallélisme
+
+---
+
+## 📐 Architecture
 
 ### Mode Synchrone (`/chat`) - Compatibilité
+
 ```
 ┌─────────────┐     POST /chat      ┌─────────────────┐
 │   Client    │ ──────────────────► │    FastAPI      │
@@ -13,11 +29,12 @@ POC de streaming LLM avec découplage via RabbitMQ. Permet de décharger le stre
 ```
 
 ### Mode Asynchrone (`/chat/async`) - Haute charge ⚡
+
 ```
 ┌─────────────┐    POST /chat/async   ┌─────────────────┐
 │   Client    │ ────────────────────► │    FastAPI      │
 │  (Browser)  │ ◄──{session_id}────── │  (fire & forget)│
-└──────┬──────┘                       └────────┬────────┘
+└──────┬──────┘      (~50ms)          └────────┬────────┘
        │                                       │
        │                                       │ Publie tâche
        │ SSE                                   ▼
@@ -29,7 +46,7 @@ POC de streaming LLM avec découplage via RabbitMQ. Permet de décharger le stre
        │                                       │ Consomme
        │                                       ▼
        │                              ┌─────────────────┐
-       │                              │  LLM Worker(s)  │ x N instances
+       │                              │  LLM Worker(s)  │ ×N instances
        │                              │  (llm_worker.py)│
        │                              └────────┬────────┘
        │                                       │
@@ -40,111 +57,227 @@ POC de streaming LLM avec découplage via RabbitMQ. Permet de décharger le stre
                                       └─────────────────┘
 ```
 
-### Avantages du mode asynchrone
+### Comparaison des modes
 
 | Aspect | Sync (`/chat`) | Async (`/chat/async`) |
 |--------|----------------|----------------------|
-| Latence HTTP | Bloqué pendant génération | ~50ms retour immédiat |
+| Latence HTTP | Bloqué pendant génération | **~50ms** retour immédiat |
 | Workers HTTP | 1 par requête active | Libéré instantanément |
 | Scalabilité | Limitée par uvicorn | Workers indépendants |
-| Charge | ~100 req/s | ~1000+ req/s |
+| Charge max | ~50 req/s | **1000+ req/s** |
+| Use case | Dev, tests | **Production** |
 
-## Fonctionnalités
+---
 
-- 🚀 **Streaming LLM** via OpenAI API (gpt-4o-mini)
-- 📡 **RabbitMQ** pour le découplage producteur/consommateur
-- 🔄 **SSE** (Server-Sent Events) pour le streaming client
-- 🐳 **Docker** ready
-- ⚡ **Deux modes** : RabbitMQ (async) ou Direct (sync)
+## ⚙️ Variables d'environnement
 
-## Prérequis
+| Variable | Description | Défaut | Requis |
+|----------|-------------|--------|--------|
+| `OPENAI_API_KEY` | Clé API OpenAI | - | ✅ |
+| `RABBIT_MQ` | URL de connexion RabbitMQ | - | ✅ |
+| `UVICORN_WORKERS` | Nombre de workers HTTP (uvicorn) | `4` | ❌ |
+| `LLM_WORKERS` | Nombre de workers LLM (traitement OpenAI) | `3` | ❌ |
+| `PORT` | Port de l'API | `8007` | ❌ |
 
-- Docker
-- Compte OpenAI (API Key)
-- Compte CloudAMQP ou RabbitMQ local
+### Exemple `.env`
 
-## Installation
+```env
+# Requis
+OPENAI_API_KEY=sk-your-openai-api-key
+RABBIT_MQ=amqps://user:password@host/vhost
+
+# Optionnel (scaling)
+UVICORN_WORKERS=4
+LLM_WORKERS=5
+PORT=8007
+```
+
+---
+
+## 🚀 Démarrage rapide
 
 ### 1. Configuration
 
 ```bash
 cp .env.example .env
-```
-
-Éditer `.env` :
-
-```env
-OPENAI_API_KEY=sk-your-openai-api-key
-RABBIT_MQ=amqps://user:password@host/vhost
+# Éditer .env avec vos clés
 ```
 
 ### 2. Build & Run
 
 ```bash
-# Build et lancer
+# Avec le script
 ./run.sh start
 
 # Ou manuellement
 docker build -t llm-fastapi-mq .
-docker run -d --name llm-mq-poc -p 8007:8007 --env-file .env llm-fastapi-mq
+docker run -d --name llm-mq-poc \
+  -p 8007:8007 \
+  -e UVICORN_WORKERS=4 \
+  -e LLM_WORKERS=5 \
+  --env-file .env \
+  llm-fastapi-mq
 ```
 
-### 3. Test
+### 3. Vérification
 
 ```bash
-# Health check
-curl http://localhost:8007/health
+# Health check complet
+curl http://localhost:8007/health/full
+# {"status":"ok","rabbitmq":"connected","openai":"configured"}
 
-# Test OpenAI
-curl http://localhost:8007/test
-
-# Chat avec streaming
-curl -N -X POST http://localhost:8007/chat \
-  -H "Content-Type: application/json" \
-  -d '{"message": "Bonjour !"}'
+# Voir les logs de démarrage
+docker logs llm-mq-poc
 ```
 
-## API Endpoints
+---
+
+## 📡 API Endpoints
 
 | Méthode | Endpoint | Description | Mode |
 |---------|----------|-------------|------|
 | `GET` | `/health` | Health check basique | - |
-| `GET` | `/health/full` | Health check + statut RabbitMQ | - |
+| `GET` | `/health/full` | Health check + statut RabbitMQ/OpenAI | - |
 | `GET` | `/test` | Test connexion OpenAI | - |
 | `GET` | `/stats` | Tâches en attente dans la queue | - |
 | `POST` | `/chat` | Streaming synchrone (legacy) | Sync |
 | `POST` | `/chat/async` | Fire-and-forget, retourne session_id | **Async** ⚡ |
 | `GET` | `/stream/{session_id}` | SSE - consomme les chunks | Async |
 
-### POST /chat
+### Exemple : Mode Async (recommandé)
 
-**Request:**
-```json
-{
-  "message": "Explique-moi les microservices",
-  "session_id": "optional-custom-id"
-}
+```bash
+# 1. Envoie la requête (retour immédiat ~50ms)
+curl -X POST http://localhost:8007/chat/async \
+  -H "Content-Type: application/json" \
+  -d '{"message": "Explique-moi Docker"}'
+
+# Réponse :
+# {"status":"queued","session_id":"abc-123","stream_url":"/stream/abc-123"}
+
+# 2. Écoute le stream SSE
+curl -N http://localhost:8007/stream/abc-123
 ```
 
-**Response:** Stream text/plain + Header `X-Session-ID`
+### Exemple : Mode Sync (compatibilité)
 
-### GET /stream/{session_id}
-
-**Response:** SSE avec events :
-```
-data: {"chunk": "Bonjour"}
-
-data: {"chunk": " !"}
-
-data: {"type": "done"}
+```bash
+curl -N -X POST http://localhost:8007/chat \
+  -H "Content-Type: application/json" \
+  -d '{"message": "Bonjour !"}'
 ```
 
-## Interface Web
+---
+
+## 🧪 Tests
+
+Tests pytest inclus pour valider le parallélisme :
+
+```bash
+# Installation des dépendances de test
+pip install pytest pytest-asyncio httpx
+
+# Lancer tous les tests
+pytest tests/ -v -s
+
+# Test spécifique : 5 requêtes parallèles
+pytest tests/test_concurrent.py -v -s -k "test_parallel_5"
+
+# Test de comparaison sync vs async
+pytest tests/test_concurrent.py -v -s -k "test_compare"
+```
+
+### Exemple de sortie
+
+```
+==================================================
+  TEST: 5 requêtes en parallèle
+==================================================
+  Requête #1: 3.21s | Queue: 45ms | Réponse: 1, 2, 3...
+  Requête #2: 3.18s | Queue: 42ms | Réponse: A, B, C...
+  Requête #3: 3.25s | Queue: 48ms | Réponse: ...
+  Requête #4: 3.19s | Queue: 44ms | Réponse: ...
+  Requête #5: 3.22s | Queue: 46ms | Réponse: ...
+
+==================================================
+  RÉSULTATS
+==================================================
+  Temps total:        3.45s
+  Temps moyen/req:    3.21s
+  Si séquentiel:      16.05s
+  Gain parallélisme:  4.7x
+==================================================
+
+✓ Parallélisme confirmé: 4.7x plus rapide!
+```
+
+---
+
+## 📊 Scaling
+
+### Calcul du nombre de workers LLM
+
+```
+workers = (requêtes/minute) × (temps moyen génération en minutes)
+
+Exemple :
+- 100 requêtes/minute
+- 30 secondes par génération (0.5 min)
+- Workers nécessaires = 100 × 0.5 = 50 workers
+```
+
+### Configuration recommandée
+
+| Charge | UVICORN_WORKERS | LLM_WORKERS | RAM estimée |
+|--------|-----------------|-------------|-------------|
+| Dev | 1 | 2 | 512 MB |
+| Petit | 2 | 5 | 1 GB |
+| Moyen | 4 | 10 | 2 GB |
+| Production | 4 | 20-50 | 4-8 GB |
+
+### Lancer avec plus de workers
+
+```bash
+docker run -d --name llm-mq-poc \
+  -p 8007:8007 \
+  -e UVICORN_WORKERS=4 \
+  -e LLM_WORKERS=20 \
+  --env-file .env \
+  llm-fastapi-mq
+```
+
+### Kubernetes (production)
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: llm-api
+spec:
+  replicas: 2
+  template:
+    spec:
+      containers:
+      - name: api
+        image: llm-fastapi-mq:latest
+        env:
+        - name: UVICORN_WORKERS
+          value: "4"
+        - name: LLM_WORKERS
+          value: "10"
+        resources:
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+```
+
+---
+
+## 🖥️ Interface Web
 
 ### Lancer l'interface
 
 ```bash
-# Option 1 : Ouvrir directement le fichier
 # Windows
 start chat.html
 
@@ -154,28 +287,10 @@ open chat.html
 # Linux
 xdg-open chat.html
 
-# Option 2 : Serveur local (évite les problèmes CORS)
+# Ou via serveur local
 python -m http.server 3000
 # Puis ouvrir http://localhost:3000/chat.html
-
-# Option 3 : Extension VS Code "Live Server"
-# Clic droit sur chat.html → "Open with Live Server"
 ```
-
-### Configuration
-
-Par défaut, l'interface se connecte à `http://localhost:8007`. Pour changer l'URL de l'API, modifier la variable dans `chat.html` :
-
-```javascript
-const API_URL = 'http://localhost:8007';
-```
-
-### Modes disponibles
-
-| Mode | Description | Flux |
-|------|-------------|------|
-| **RabbitMQ** | Découplé via message queue | `POST /chat` → RabbitMQ → `SSE /stream/{id}` |
-| **Direct** | Stream HTTP classique | `POST /chat` → Stream response |
 
 ### Fonctionnalités
 
@@ -186,28 +301,36 @@ const API_URL = 'http://localhost:8007';
 - 📊 Status indicators (API, Queue, Stream)
 - 📱 Responsive design
 
-## Structure du projet
+---
+
+## 📁 Structure du projet
 
 ```
 llm_fastapi_mq/
 ├── main.py                 # Application FastAPI (routeur)
 ├── config.py               # Configuration (env vars)
 ├── requirements.txt        # Dépendances Python
-├── Dockerfile              # Image Docker
-├── entrypoint.sh           # Script d'entrée Docker
+├── Dockerfile              # Image Docker multi-workers
+├── entrypoint.sh           # Lance API + Workers automatiquement
 ├── run.sh                  # Script de gestion
 ├── chat.html               # Interface web
+├── pytest.ini              # Configuration pytest
 ├── .env                    # Variables d'environnement
 ├── .env.example            # Template env
-└── services/
-    ├── __init__.py         # Module init
-    ├── connection_pool.py  # Pool de connexions RabbitMQ (singleton)
-    ├── llm_worker.py       # Worker LLM indépendant (scalable)
-    ├── rabbit_publisher.py # Publisher RabbitMQ (legacy)
-    └── rabbit_consumer.py  # Consumer RabbitMQ
+├── services/
+│   ├── __init__.py         # Module init
+│   ├── connection_pool.py  # Pool de connexions RabbitMQ (singleton)
+│   ├── llm_worker.py       # Worker LLM indépendant (scalable)
+│   ├── rabbit_publisher.py # Publisher RabbitMQ
+│   └── rabbit_consumer.py  # Consumer RabbitMQ
+└── tests/
+    ├── __init__.py
+    └── test_concurrent.py  # Tests de parallélisme
 ```
 
-## Scripts
+---
+
+## 🔧 Scripts
 
 ```bash
 ./run.sh start    # Build + Run
@@ -218,112 +341,59 @@ llm_fastapi_mq/
 ./run.sh test     # Test les endpoints
 ```
 
-## Scaling (Haute charge) ⚡
-
-### Étape 1 : Lancer le serveur FastAPI
-
-```bash
-# Un seul serveur HTTP suffit (il ne fait que router)
-./run.sh start
-```
-
-### Étape 2 : Lancer les workers LLM
-
-```bash
-# Localement - Plusieurs workers en parallèle
-python -m services.llm_worker &
-python -m services.llm_worker &
-python -m services.llm_worker &
-
-# Ou avec Docker
-docker run -d --name worker-1 --env-file .env llm-fastapi-mq python -m services.llm_worker
-docker run -d --name worker-2 --env-file .env llm-fastapi-mq python -m services.llm_worker
-docker run -d --name worker-3 --env-file .env llm-fastapi-mq python -m services.llm_worker
-```
-
-### Étape 3 : Utiliser le mode async
-
-```bash
-# POST sur /chat/async au lieu de /chat
-curl -X POST http://localhost:8007/chat/async \
-  -H "Content-Type: application/json" \
-  -d '{"message": "Bonjour !"}'
-
-# Réponse immédiate :
-# {"status": "queued", "session_id": "abc-123", "stream_url": "/stream/abc-123"}
-
-# Puis écouter le stream SSE :
-curl -N http://localhost:8007/stream/abc-123
-```
-
-### Monitoring
-
-```bash
-# Voir les tâches en attente
-curl http://localhost:8007/stats
-
-# Health check complet
-curl http://localhost:8007/health/full
-```
-
-### Kubernetes (production)
-
-```yaml
-# api-deployment.yaml - Serveur HTTP léger
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: llm-api
-spec:
-  replicas: 2  # 2 suffisent (stateless, rapide)
-  template:
-    spec:
-      containers:
-      - name: api
-        resources:
-          limits:
-            memory: "256Mi"
-            cpu: "200m"
 ---
-# worker-deployment.yaml - Workers LLM (le vrai travail)
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: llm-worker
-spec:
-  replicas: 10  # Scaler selon la charge
-  template:
-    spec:
-      containers:
-      - name: worker
-        command: ["python", "-m", "services.llm_worker"]
-        resources:
-          limits:
-            memory: "512Mi"
-            cpu: "500m"
+
+## 🐛 Troubleshooting
+
+### Les requêtes sont traitées séquentiellement
+
+**Cause** : Pas assez de workers LLM.
+
+```bash
+# Vérifier le nombre de workers
+docker top llm-mq-poc | grep llm_worker
+
+# Augmenter les workers
+docker run -e LLM_WORKERS=10 ...
 ```
 
-### Calcul du nombre de workers
+### Connection error OpenAI
 
-```
-Formule : workers = (requêtes/minute) × (temps moyen génération en minutes)
+**Cause** : Caractères `\r` dans le fichier `.env` (Windows).
 
-Exemple :
-- 100 requêtes/minute
-- 30 secondes par génération (0.5 min)
-- Workers nécessaires = 100 × 0.5 = 50 workers
+```bash
+# Nettoyer le fichier
+sed -i 's/\r$//' .env
 ```
 
-## Troubleshooting
+### RabbitMQ timeout / Connexion refusée
 
-### Connection error
+**Cause** : Limite du plan CloudAMQP gratuit (20 connexions max).
 
-Si vous avez une erreur de connexion OpenAI, vérifiez que votre `.env` n'a pas de caractères `\r` (Windows). Le `config.py` utilise `.strip()` pour nettoyer les variables.
+```bash
+# Réduire le nombre de workers
+docker run -e LLM_WORKERS=3 -e UVICORN_WORKERS=2 ...
+```
 
-### RabbitMQ timeout
+### Voir les stats de la queue
 
-Augmentez le timeout dans `rabbit_consumer.py` si les réponses LLM sont longues.
+```bash
+curl http://localhost:8007/stats
+# {"pending_tasks":5,"queue":"llm_tasks","status":"ok"}
+```
 
-## License
+---
+
+## 📄 License
 
 MIT
+
+---
+
+## 🤝 Contribution
+
+1. Fork le projet
+2. Créer une branche (`git checkout -b feature/amazing`)
+3. Commit (`git commit -m 'Add amazing feature'`)
+4. Push (`git push origin feature/amazing`)
+5. Ouvrir une Pull Request
