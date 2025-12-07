@@ -5,15 +5,15 @@ set -e
 # Entrypoint - Lance API + Workers LLM
 # ============================================================
 
-# Charge les variables depuis .env si le fichier existe
+# Charge les variables depuis .env (nettoie les \r Windows)
 if [ -f /app/.env ]; then
-    export $(grep -v '^#' /app/.env | xargs)
+    export $(grep -v '^#' /app/.env | tr -d '\r' | xargs)
 fi
 
-# Valeurs par défaut
-UVICORN_WORKERS=${UVICORN_WORKERS:-4}
-LLM_WORKERS=${LLM_WORKERS:-3}
-PORT=${PORT:-8007}
+# Nettoie les variables passées via -e (peuvent avoir des \r)
+UVICORN_WORKERS=$(echo "${UVICORN_WORKERS:-4}" | tr -d '\r')
+LLM_WORKERS=$(echo "${LLM_WORKERS:-3}" | tr -d '\r')
+PORT=$(echo "${PORT:-8007}" | tr -d '\r')
 
 echo "========================================"
 echo "  LLM FastAPI + RabbitMQ"
