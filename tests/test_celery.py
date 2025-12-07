@@ -6,9 +6,7 @@ Usage:
     pytest tests/test_celery.py -v -s -k "test_parallel"
     
 Prérequis:
-    - Redis running
-    - Celery worker running: celery -A celery_app worker --loglevel=info
-    - API running: uvicorn main_celery:app --port 8007
+    ./run.sh start
 """
 import asyncio
 import json
@@ -51,11 +49,11 @@ class TestCeleryAsync:
     """Tests du mode asynchrone Celery."""
     
     def test_chat_async_returns_task_id(self):
-        """Vérifie que /chat/async retourne un task_id Celery."""
+        """Vérifie que /chat retourne un task_id Celery."""
         start = time.time()
         
         response = httpx.post(
-            f"{API_URL}/chat/async",
+            f"{API_URL}/chat",
             json={"message": "Dis juste OK"},
             timeout=10
         )
@@ -82,7 +80,7 @@ class TestCeleryAsync:
         """Vérifie l'endpoint de status des tâches Celery."""
         # Crée une tâche
         response = httpx.post(
-            f"{API_URL}/chat/async",
+            f"{API_URL}/chat",
             json={"message": "Test status"},
             timeout=10
         )
@@ -102,7 +100,7 @@ class TestCeleryAsync:
         """Vérifie que les priorités sont acceptées."""
         # Priorité haute
         resp_high = httpx.post(
-            f"{API_URL}/chat/async",
+            f"{API_URL}/chat",
             json={"message": "Urgent", "priority": 10},
             timeout=10
         )
@@ -110,7 +108,7 @@ class TestCeleryAsync:
         
         # Priorité basse
         resp_low = httpx.post(
-            f"{API_URL}/chat/async",
+            f"{API_URL}/chat",
             json={"message": "Pas urgent", "priority": -10},
             timeout=10
         )
@@ -128,7 +126,7 @@ class TestCeleryStreaming:
         async with httpx.AsyncClient(timeout=TIMEOUT) as client:
             # Envoie la requête
             resp = await client.post(
-                f"{API_URL}/chat/async",
+                f"{API_URL}/chat",
                 json={"message": "Compte de 1 à 3"}
             )
             data = resp.json()
@@ -189,7 +187,7 @@ class TestCeleryParallel:
                 
                 # 1. Envoie (fire-and-forget)
                 resp = await client.post(
-                    f"{API_URL}/chat/async",
+                    f"{API_URL}/chat",
                     json={"message": msg}
                 )
                 data = resp.json()
@@ -261,7 +259,7 @@ class TestCeleryRateLimiting:
             
             async def quick_send(i: int):
                 resp = await client.post(
-                    f"{API_URL}/chat/async",
+                    f"{API_URL}/chat",
                     json={"message": f"Burst test {i}"}
                 )
                 return resp.json()
@@ -301,46 +299,6 @@ class TestCeleryStats:
             print(f"  Queues: {data.get('queues')}")
             print(f"  Workers: {data.get('workers')}")
             print(f"  Active tasks: {data.get('active_tasks')}")
-
-
-class TestCeleryVsSync:
-    """Comparaison sync vs async."""
-    
-    @pytest.mark.asyncio
-    async def test_compare_sync_vs_celery(self):
-        """
-        Compare le mode sync (/chat) vs Celery (/chat/async).
-        """
-        print(f"\n{'='*50}")
-        print(f"  COMPARAISON: Sync vs Celery")
-        print(f"{'='*50}")
-        
-        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-            # Test mode CELERY (fire-and-forget)
-            start = time.time()
-            resp = await client.post(
-                f"{API_URL}/chat/async",
-                json={"message": "Dis OK"}
-            )
-            celery_time = time.time() - start
-            
-            print(f"  Mode CELERY: {celery_time*1000:.0f}ms (retour immédiat)")
-            assert celery_time < 0.5, "Mode Celery devrait retourner en < 500ms"
-            
-            # Test mode SYNC (attend la fin)
-            start = time.time()
-            resp = await client.post(
-                f"{API_URL}/chat",
-                json={"message": "Dis OK"}
-            )
-            content = resp.text
-            sync_time = time.time() - start
-            
-            print(f"  Mode SYNC:  {sync_time:.2f}s (attend génération)")
-            
-            speedup = sync_time / celery_time
-            print(f"\n  → Celery {speedup:.0f}x plus rapide pour libérer le serveur!")
-            print(f"{'='*50}")
 
 
 class TestEmbeddings:

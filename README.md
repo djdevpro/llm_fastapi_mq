@@ -12,73 +12,66 @@
 
 ## 🎯 Problème résolu
 
-Les appels LLM (OpenAI, etc.) prennent **10-60 secondes** et bloquent vos workers HTTP.
+Les appels LLM (OpenAI) prennent **10-60 secondes** et bloquent vos workers HTTP.
 
 **Cette architecture** :
 - ⚡ Retourne **immédiatement** (~100ms)
-- 🔄 Traite les requêtes **en parallèle** via Celery
-- 📡 Streame la réponse via **Server-Sent Events**
+- 🔄 Traite en **parallèle** via Celery
+- 📡 Streame via **SSE** (Server-Sent Events)
 
 ---
 
 ## 📐 Architecture
 
 ```
-┌─────────────┐    POST /chat/async    ┌─────────────────┐
-│   Client    │ ─────────────────────► │    FastAPI      │
-│             │ ◄── task_id + session  │      API        │
-└──────┬──────┘                        └────────┬────────┘
-       │                                        │
-       │ SSE                           ┌────────▼────────┐
-       │                               │     Celery      │
-       │                               │    Workers      │
-       │                               └────────┬────────┘
-       │                                        │
-       │                               ┌────────▼────────┐
-       │                               │     Broker      │
-       │ GET /stream/{session}         │ Redis / RabbitMQ│
-       └───────────────────────────────┴─────────────────┘
+┌─────────────┐      POST /chat       ┌─────────────────┐
+│   Client    │ ────────────────────► │    FastAPI      │
+│  (UI:3000)  │ ◄── task_id + session │   (API:8007)    │
+└──────┬──────┘                       └────────┬────────┘
+       │                                       │
+       │ SSE                          ┌────────▼────────┐
+       │                              │     Celery      │
+       │                              │    Workers      │
+       │                              └────────┬────────┘
+       │                                       │
+       │ GET /stream/{session}        ┌────────▼────────┐
+       └──────────────────────────────┤     Redis       │
+                                      └─────────────────┘
 ```
-
-### Brokers supportés
-
-| Broker | Config | Use case |
-|--------|--------|----------|
-| **Redis** | `BROKER=redis` | Simple, rapide (défaut) |
-| **RabbitMQ** | `BROKER=rabbitmq` | CloudAMQP, haute dispo |
 
 ---
 
-## 📁 Structure du projet
+## 📁 Structure
 
 ```
 llm_fastapi_mq/
-├── app/                          # Code source
-│   ├── api/
-│   │   └── main.py               # FastAPI application
-│   ├── tasks/
-│   │   └── llm_tasks.py          # Tâches Celery
-│   ├── celery_app.py             # Configuration Celery
-│   └── config.py                 # Variables d'environnement
+├── app/                      # Code source
+│   ├── api/main.py           # FastAPI
+│   ├── tasks/llm_tasks.py    # Tâches Celery
+│   ├── celery_app.py
+│   └── config.py
 │
-├── docker/                       # Docker
+├── docker/                   # Docker
 │   ├── Dockerfile.api
 │   ├── Dockerfile.worker
 │   ├── entrypoint-api.sh
 │   ├── entrypoint-worker.sh
 │   └── docker-compose.yml
 │
+├── ui/                       # Interface web
+│   ├── chat.html
+│   └── Dockerfile
+│
 ├── tests/
-├── chat.html                     # Interface web
-├── run.sh                        # Script de gestion
+│   └── test_celery.py
+│
+├── run.sh
 └── requirements.txt
 ```
 
 ---
 
-## ⚙️ Configuration
-
-### Fichier `.env`
+## ⚙️ Configuration `.env`
 
 ```env
 # === REQUIS ===
@@ -104,6 +97,9 @@ CELERY_LOGLEVEL=info
 # === MONITORING ===
 FLOWER_PORT=5555
 
+# === UI ===
+WEB_PORT=3000
+
 # === RATE LIMITING ===
 LLM_RPM=500
 LLM_TPM=100000
@@ -111,37 +107,30 @@ LLM_TPM=100000
 
 ---
 
-## 🚀 Démarrage rapide
-
-### 1. Configuration
+## 🚀 Démarrage
 
 ```bash
+# 1. Config
 cp .env.example .env
-# Éditer .env avec votre clé OpenAI
-```
 
-### 2. Lancer
-
-```bash
+# 2. Lancer
 ./run.sh start
-```
 
-### 3. Vérifier
-
-```bash
-curl http://localhost:8007/health/full
+# 3. Ouvrir
+#    UI:  http://localhost:3000
+#    API: http://localhost:8007
+#    Docs: http://localhost:8007/docs
 ```
 
 ---
 
-## 📡 API Endpoints
+## 📡 Endpoints
 
 | Méthode | Endpoint | Description |
 |---------|----------|-------------|
 | `GET` | `/health` | Health check |
 | `GET` | `/health/full` | Status complet |
-| `POST` | `/chat` | Chat sync (streaming HTTP) |
-| `POST` | `/chat/async` | **Chat async (Celery)** ⚡ |
+| `POST` | `/chat` | **Chat async (Celery)** ⚡ |
 | `GET` | `/chat/{task_id}` | Status tâche |
 | `GET` | `/stream/{session_id}` | Stream SSE |
 | `POST` | `/embeddings` | Batch embeddings |
@@ -150,24 +139,38 @@ curl http://localhost:8007/health/full
 ### Exemple
 
 ```bash
-# 1. Envoie (retour immédiat ~100ms)
-curl -X POST http://localhost:8007/chat/async \
+# 1. Envoie (retour ~100ms)
+curl -X POST http://localhost:8007/chat \
   -H "Content-Type: application/json" \
   -d '{"message": "Hello!", "priority": 5}'
 
 # Réponse:
-# {"status":"queued","task_id":"xxx","session_id":"yyy","stream_url":"/stream/yyy"}
+{
+  "status": "queued",
+  "task_id": "xxx",
+  "session_id": "yyy",
+  "stream_url": "/stream/yyy"
+}
 
 # 2. Stream SSE
 curl -N http://localhost:8007/stream/yyy
-# data: {"type":"chunk","content":"Hello"}
-# data: {"type":"chunk","content":"!"}
-# data: {"type":"complete"}
 ```
 
 ---
 
-## 🐳 Commandes
+## 🐳 Services Docker
+
+| Service | Port | Description |
+|---------|------|-------------|
+| `ui` | 3000 | Interface chat |
+| `api` | 8007 | FastAPI |
+| `worker` | - | Celery workers |
+| `redis` | - | Broker (interne) |
+| `flower` | 5555 | Monitoring (optionnel) |
+
+---
+
+## 🛠️ Commandes
 
 ```bash
 ./run.sh start         # Démarre tout
@@ -179,16 +182,14 @@ curl -N http://localhost:8007/stream/yyy
 ./run.sh status        # Status
 ./run.sh scale 5       # 5 workers
 ./run.sh monitoring    # + Flower
-./run.sh test          # Test endpoints
-./run.sh build         # Build images
-./run.sh clean         # Nettoie tout
+./run.sh test          # Tests
+./run.sh build         # Build
+./run.sh clean         # Nettoie
 ```
 
 ---
 
 ## 📊 Scaling
-
-### Configurations
 
 | Charge | Workers | Concurrency |
 |--------|---------|-------------|
@@ -207,14 +208,6 @@ curl -N http://localhost:8007/stream/yyy
 
 ---
 
-## 🖥️ Interface Web
-
-```bash
-open chat.html
-```
-
----
-
 ## 🧪 Tests
 
 ```bash
@@ -223,15 +216,13 @@ pytest tests/test_celery.py -v -s
 
 ---
 
-## 🔧 Features
+## 🔧 Features Celery
 
-| Feature | Description |
-|---------|-------------|
-| Rate limiting | Token bucket Redis |
-| Retry auto | Backoff exponentiel |
-| Priorités | 3 queues |
-| Timeout | 5 min max |
-| Monitoring | Flower |
+- ✅ Rate limiting (token bucket Redis)
+- ✅ Retry automatique (backoff exponentiel)
+- ✅ 3 queues prioritaires
+- ✅ Timeout 5 min
+- ✅ Monitoring Flower
 
 ---
 

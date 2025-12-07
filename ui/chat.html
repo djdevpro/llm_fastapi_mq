@@ -825,7 +825,7 @@
         // Mode Celery + Redis
         async function sendWithCelery(message) {
             try {
-                const res = await fetch(`${API_URL}/chat/async`, {
+                const res = await fetch(`${API_URL}/chat`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ message })

@@ -2,8 +2,7 @@
 FastAPI + Celery - API LLM scalable.
 
 Endpoints:
-- POST /chat          → Synchrone (streaming direct)
-- POST /chat/async    → Fire-and-forget (Celery task)
+- POST /chat    → Fire-and-forget (Celery task)
 - GET  /chat/{task_id} → Status d'une tâche
 - GET  /stream/{session_id} → SSE streaming depuis Redis
 - POST /embeddings    → Batch embeddings async
@@ -131,47 +130,11 @@ async def health_full():
 
 
 # ============================================================
-# CHAT SYNC
-# ============================================================
-
-@app.post("/chat")
-async def chat_sync(request: ChatRequest):
-    """Chat avec streaming synchrone (direct, sans Celery)."""
-    session_id = request.session_id or str(uuid.uuid4())
-    
-    async def generate():
-        try:
-            stream = await openai_client.chat.completions.create(
-                model=request.model,
-                messages=[
-                    {"role": "system", "content": request.system_prompt},
-                    {"role": "user", "content": request.message}
-                ],
-                stream=True
-            )
-            
-            async for chunk in stream:
-                content = chunk.choices[0].delta.content or ""
-                if content:
-                    yield content
-                    
-        except Exception as e:
-            logger.error(f"Stream error: {e}")
-            yield f"\n[ERROR: {e}]"
-    
-    return StreamingResponse(
-        generate(),
-        media_type="text/plain",
-        headers={"X-Session-ID": session_id}
-    )
-
-
-# ============================================================
 # CHAT ASYNC (Celery)
 # ============================================================
 
-@app.post("/chat/async", response_model=TaskResponse)
-async def chat_async(request: ChatRequest):
+@app.post("/chat", response_model=TaskResponse)
+async def chat(request: ChatRequest):
     """Chat asynchrone via Celery."""
     session_id = request.session_id or str(uuid.uuid4())
     
