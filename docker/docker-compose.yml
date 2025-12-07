@@ -9,12 +9,8 @@ services:
     container_name: llm-api
     env_file:
       - ../.env
-    environment:
-      - BROKER=${BROKER:-redis}
-      - REDIS_URL=redis://redis:6379/0
-      - RABBITMQ_URL=${RABBITMQ_URL:-}
     ports:
-      - "${PORT:-8007}:${PORT:-8007}"
+      - "${PORT}:${PORT}"
     depends_on:
       redis:
         condition: service_healthy
@@ -30,13 +26,6 @@ services:
     container_name: llm-worker
     env_file:
       - ../.env
-    environment:
-      - BROKER=${BROKER:-redis}
-      - REDIS_URL=redis://redis:6379/0
-      - RABBITMQ_URL=${RABBITMQ_URL:-}
-      - CELERY_CONCURRENCY=${CELERY_CONCURRENCY:-4}
-      - CELERY_QUEUES=high,default,low
-      - CELERY_LOGLEVEL=info
     depends_on:
       redis:
         condition: service_healthy
@@ -57,12 +46,9 @@ services:
     env_file:
       - ../.env
     environment:
-      - BROKER=${BROKER:-redis}
-      - REDIS_URL=redis://redis:6379/0
-      - RABBITMQ_URL=${RABBITMQ_URL:-}
-      - CELERY_CONCURRENCY=2
+      # Override pour écouter UNIQUEMENT la queue high
       - CELERY_QUEUES=high
-      - CELERY_LOGLEVEL=info
+      - CELERY_CONCURRENCY=2
     depends_on:
       redis:
         condition: service_healthy
@@ -92,11 +78,12 @@ services:
   flower:
     image: mher/flower:2.0
     container_name: llm-flower
+    env_file:
+      - ../.env
     environment:
-      - CELERY_BROKER_URL=${BROKER:-redis}://redis:6379/0
-      - FLOWER_PORT=5555
+      - CELERY_BROKER_URL=${REDIS_URL}
     ports:
-      - "5555:5555"
+      - "${FLOWER_PORT}:${FLOWER_PORT}"
     depends_on:
       - redis
     restart: unless-stopped

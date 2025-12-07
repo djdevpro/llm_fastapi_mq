@@ -7,7 +7,15 @@
 set -e
 
 DOCKER_DIR="docker"
+
+# Charge le .env si présent
+if [ -f ".env" ]; then
+    export $(grep -v '^#' .env | sed 's/#.*//' | tr -d '\r' | xargs)
+fi
+
+# Valeurs par défaut
 PORT="${PORT:-8007}"
+FLOWER_PORT="${FLOWER_PORT:-5555}"
 
 # Couleurs
 RED='\033[0;31m'
