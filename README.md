@@ -6,6 +6,7 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.124-green.svg)](https://fastapi.tiangolo.com)
 [![Celery](https://img.shields.io/badge/Celery-5.4-green.svg)](https://docs.celeryq.dev)
 [![Docker](https://img.shields.io/badge/Docker-ready-blue.svg)](https://docker.com)
+[![Tests](https://img.shields.io/badge/tests-passing-success.svg)](tests/)
 
 ---
 
