@@ -67,7 +67,7 @@ start() {
         echo "  • POST /chat/async"
         echo "  • GET  /stream/{session_id}"
         echo ""
-        log_info "Interface web: open chat.html"
+        log_info "Interface web: http://localhost:3001"
     else
         log_error "L'API ne répond pas"
         dc logs --tail 20 api

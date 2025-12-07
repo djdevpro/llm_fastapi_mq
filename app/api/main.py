@@ -208,10 +208,15 @@ async def stream_sse(
                     break
                 
                 if message["type"] == "message":
-                    yield f"data: {message['data']}\n\n"
+                    data = message['data']
+                    # Décoder si bytes
+                    if isinstance(data, bytes):
+                        data = data.decode('utf-8')
+                    
+                    yield f"data: {data}\n\n"
                     
                     try:
-                        parsed = json.loads(message["data"])
+                        parsed = json.loads(data)
                         if parsed.get("type") in ("complete", "error"):
                             break
                     except:

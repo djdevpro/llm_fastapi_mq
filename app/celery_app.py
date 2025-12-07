@@ -1,16 +1,12 @@
 """
-Configuration Celery avec Redis ou RabbitMQ.
-
-Brokers supportés :
-    - BROKER=redis    → Redis (défaut)
-    - BROKER=rabbitmq → RabbitMQ (CloudAMQP, etc.)
+Configuration Celery avec Redis.
 
 Lancer le worker :
     celery -A app.celery_app worker --loglevel=info --concurrency=4
 """
 from celery import Celery
 from kombu import Queue
-from app.config import BROKER, BROKER_URL, RESULT_BACKEND
+from app.config import BROKER_URL, RESULT_BACKEND
 
 # Celery app
 celery = Celery(
@@ -20,7 +16,7 @@ celery = Celery(
     include=["app.tasks.llm_tasks"]
 )
 
-print(f"[Celery] Broker: {BROKER} ({BROKER_URL[:30]}...)")
+print(f"[Celery] Broker: {BROKER_URL[:30]}...")
 
 # Configuration
 celery.conf.update(

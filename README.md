@@ -1,6 +1,6 @@
 # 🚀 LLM Stream API
 
-> **API LLM scalable** avec Celery pour gérer les requêtes OpenAI en parallèle.
+> **API LLM scalable** avec Celery + Redis pour gérer les requêtes OpenAI en parallèle.
 
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.124-green.svg)](https://fastapi.tiangolo.com)
@@ -77,13 +77,8 @@ llm_fastapi_mq/
 # === REQUIS ===
 OPENAI_API_KEY=sk-proj-xxxxx
 
-# === BROKER ===
-BROKER=redis
+# === REDIS ===
 REDIS_URL=redis://redis:6379/0
-
-# Pour RabbitMQ (optionnel)
-# BROKER=rabbitmq
-# RABBITMQ_URL=amqps://user:pass@host/vhost
 
 # === API ===
 PORT=8007
@@ -98,7 +93,7 @@ CELERY_LOGLEVEL=info
 FLOWER_PORT=5555
 
 # === UI ===
-WEB_PORT=3000
+UI_PORT=3000
 
 # === RATE LIMITING ===
 LLM_RPM=500
@@ -117,8 +112,8 @@ cp .env.example .env
 ./run.sh start
 
 # 3. Ouvrir
-#    UI:  http://localhost:3000
-#    API: http://localhost:8007
+#    UI:   http://localhost:3000
+#    API:  http://localhost:8007
 #    Docs: http://localhost:8007/docs
 ```
 
@@ -130,7 +125,7 @@ cp .env.example .env
 |---------|----------|-------------|
 | `GET` | `/health` | Health check |
 | `GET` | `/health/full` | Status complet |
-| `POST` | `/chat` | **Chat async (Celery)** ⚡ |
+| `POST` | `/chat` | Chat async (Celery) |
 | `GET` | `/chat/{task_id}` | Status tâche |
 | `GET` | `/stream/{session_id}` | Stream SSE |
 | `POST` | `/embeddings` | Batch embeddings |

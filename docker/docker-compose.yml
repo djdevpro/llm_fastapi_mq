@@ -81,7 +81,7 @@ services:
       dockerfile: Dockerfile
     container_name: llm-ui
     ports:
-      - "${WEB_PORT:-3000}:80"
+      - "${UI_PORT:-3000}:80"
     depends_on:
       - api
       - worker

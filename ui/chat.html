@@ -621,23 +621,8 @@
             </div>
             <div class="header-title">
                 <h1>LLM Stream</h1>
-                <span class="header-subtitle">Celery + Redis / RabbitMQ</span>
+                <span class="header-subtitle">Celery + Redis</span>
             </div>
-        </div>
-
-        <div class="mode-toggle">
-            <button class="mode-btn active" data-mode="celery">
-                <i data-lucide="layers"></i>
-                Celery
-            </button>
-            <button class="mode-btn" data-mode="rabbitmq">
-                <i data-lucide="radio"></i>
-                RabbitMQ
-            </button>
-            <button class="mode-btn" data-mode="direct">
-                <i data-lucide="zap"></i>
-                Direct
-            </button>
         </div>
 
         <div class="status-indicators">
@@ -663,7 +648,7 @@
             </div>
             <div class="empty-state-text">
                 <div class="empty-state-title">Démarre une conversation</div>
-                <div class="empty-state-subtitle">Streaming via Celery/Redis ou RabbitMQ</div>
+                <div class="empty-state-subtitle">Streaming via Celery + Redis</div>
             </div>
         </div>
     </main>
@@ -689,7 +674,6 @@
         lucide.createIcons();
 
         const API_URL = 'http://localhost:8007';
-        let currentMode = 'celery';
 
         const messagesEl = document.getElementById('messages');
         const emptyState = document.getElementById('emptyState');
@@ -698,16 +682,6 @@
         const apiStatus = document.getElementById('apiStatus');
         const mqStatus = document.getElementById('mqStatus');
         const streamStatus = document.getElementById('streamStatus');
-
-        // Mode toggle
-        document.querySelectorAll('.mode-btn').forEach(btn => {
-            btn.addEventListener('click', () => {
-                document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
-                currentMode = btn.dataset.mode;
-                console.log('Mode:', currentMode);
-            });
-        });
 
         // Health check
         async function checkHealth() {
@@ -807,23 +781,6 @@
             addMessage(message, 'user');
             addTypingIndicator();
 
-            if (currentMode === 'celery') {
-                await sendWithCelery(message);
-            } else if (currentMode === 'rabbitmq') {
-                await sendWithRabbitMQ(message);
-            } else {
-                await sendDirect(message);
-            }
-
-            sendBtn.disabled = false;
-            sendBtn.classList.remove('loading');
-            sendBtn.innerHTML = '<i data-lucide="arrow-up"></i>';
-            lucide.createIcons();
-            streamStatus.className = 'status-dot ok';
-        }
-
-        // Mode Celery + Redis
-        async function sendWithCelery(message) {
             try {
                 const res = await fetch(`${API_URL}/chat`, {
                     method: 'POST',
@@ -837,141 +794,65 @@
                 if (!sessionId) {
                     removeTypingIndicator();
                     addMessage('Erreur: Session manquante', 'assistant');
+                    resetButton();
                     return;
                 }
 
-                console.log('Celery task:', data.task_id, 'Session:', sessionId);
+                console.log('Task:', data.task_id, 'Session:', sessionId);
 
                 removeTypingIndicator();
-                const bubble = addMessage('', 'assistant', 'Celery');
+                const bubble = addMessage('', 'assistant');
                 bubble.classList.add('streaming');
                 let fullText = '';
 
                 const eventSource = new EventSource(`${API_URL}/stream/${sessionId}`);
 
                 eventSource.onmessage = (event) => {
-                    const data = JSON.parse(event.data);
-                    
-                    // Celery envoie "content" pour les chunks
-                    if (data.content) {
-                        fullText += data.content;
-                        bubble.textContent = fullText;
-                        messagesEl.scrollTop = messagesEl.scrollHeight;
-                    }
-                    
-                    // Celery envoie "complete" ou "error" pour la fin
-                    if (data.type === 'complete' || data.type === 'error' || data.type === 'timeout') {
-                        bubble.classList.remove('streaming');
-                        eventSource.close();
-                        if (data.type === 'error') {
-                            bubble.textContent = fullText || `Erreur: ${data.error}`;
+                    try {
+                        const parsed = JSON.parse(event.data);
+                        
+                        if (parsed.content) {
+                            fullText += parsed.content;
+                            bubble.textContent = fullText;
+                            messagesEl.scrollTop = messagesEl.scrollHeight;
                         }
-                        if (data.type === 'timeout') {
-                            bubble.textContent = fullText || 'Timeout: pas de réponse';
+                        
+                        if (parsed.type === 'complete' || parsed.type === 'error' || parsed.type === 'timeout') {
+                            bubble.classList.remove('streaming');
+                            eventSource.close();
+                            resetButton();
+                            if (parsed.type === 'error') {
+                                bubble.textContent = fullText || `Erreur: ${parsed.error}`;
+                            }
+                            if (parsed.type === 'timeout') {
+                                bubble.textContent = fullText || 'Timeout: pas de réponse';
+                            }
                         }
+                    } catch (e) {
+                        console.error('Parse error:', e, event.data);
                     }
                 };
 
                 eventSource.onerror = () => {
                     bubble.classList.remove('streaming');
                     eventSource.close();
+                    resetButton();
                     if (!fullText) bubble.textContent = 'Erreur de connexion SSE';
                 };
 
             } catch (err) {
                 removeTypingIndicator();
                 addMessage(`Erreur: ${err.message}`, 'assistant');
+                resetButton();
             }
         }
 
-        // Mode RabbitMQ (legacy)
-        async function sendWithRabbitMQ(message) {
-            try {
-                const res = await fetch(`${API_URL}/chat/async`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ message })
-                });
-
-                // RabbitMQ utilise le header X-Session-ID
-                let sessionId = res.headers.get('X-Session-ID');
-                
-                // Fallback: essaie le body JSON
-                if (!sessionId) {
-                    const data = await res.json();
-                    sessionId = data.session_id;
-                }
-                
-                if (!sessionId) {
-                    removeTypingIndicator();
-                    addMessage('Erreur: Session manquante', 'assistant');
-                    return;
-                }
-
-                removeTypingIndicator();
-                const bubble = addMessage('', 'assistant', 'RabbitMQ');
-                bubble.classList.add('streaming');
-                let fullText = '';
-
-                const eventSource = new EventSource(`${API_URL}/stream/${sessionId}`);
-
-                eventSource.onmessage = (event) => {
-                    const data = JSON.parse(event.data);
-                    if (data.chunk) {
-                        fullText += data.chunk;
-                        bubble.textContent = fullText;
-                        messagesEl.scrollTop = messagesEl.scrollHeight;
-                    }
-                    if (data.type === 'done') {
-                        bubble.classList.remove('streaming');
-                        eventSource.close();
-                    }
-                };
-
-                eventSource.onerror = () => {
-                    bubble.classList.remove('streaming');
-                    eventSource.close();
-                    if (!fullText) bubble.textContent = 'Erreur de connexion';
-                };
-
-            } catch (err) {
-                removeTypingIndicator();
-                addMessage(`Erreur: ${err.message}`, 'assistant');
-            }
-        }
-
-        // Mode Direct (streaming HTTP)
-        async function sendDirect(message) {
-            try {
-                const res = await fetch(`${API_URL}/chat`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ message })
-                });
-
-                removeTypingIndicator();
-                const bubble = addMessage('', 'assistant', 'Direct');
-                bubble.classList.add('streaming');
-                let fullText = '';
-
-                const reader = res.body.getReader();
-                const decoder = new TextDecoder();
-
-                while (true) {
-                    const { done, value } = await reader.read();
-                    if (done) break;
-
-                    fullText += decoder.decode(value, { stream: true });
-                    bubble.textContent = fullText;
-                    messagesEl.scrollTop = messagesEl.scrollHeight;
-                }
-
-                bubble.classList.remove('streaming');
-
-            } catch (err) {
-                removeTypingIndicator();
-                addMessage(`Erreur: ${err.message}`, 'assistant');
-            }
+        function resetButton() {
+            sendBtn.disabled = false;
+            sendBtn.classList.remove('loading');
+            sendBtn.innerHTML = '<i data-lucide="arrow-up"></i>';
+            lucide.createIcons();
+            streamStatus.className = 'status-dot ok';
         }
 
         sendBtn.addEventListener('click', sendMessage);
