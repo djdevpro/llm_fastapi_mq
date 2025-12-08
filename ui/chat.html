@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>LLM Stream</title>
     <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="/config.js"></script>
     <style>
         * {
             box-sizing: border-box;
@@ -673,7 +674,8 @@
     <script>
         lucide.createIcons();
 
-        const API_URL = 'http://localhost:8007';
+        // URL dynamique depuis config.js ou fallback
+        const API_URL = window.CONFIG?.API_URL || 'http://localhost:8007';
 
         const messagesEl = document.getElementById('messages');
         const emptyState = document.getElementById('emptyState');

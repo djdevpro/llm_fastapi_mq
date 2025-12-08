@@ -82,6 +82,8 @@ services:
     container_name: llm-ui
     ports:
       - "${UI_PORT:-3000}:80"
+    environment:
+      - API_URL=${API_URL:-http://localhost:8007}
     depends_on:
       - api
       - worker

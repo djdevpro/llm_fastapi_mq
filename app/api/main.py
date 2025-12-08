@@ -25,6 +25,7 @@ from celery.result import AsyncResult
 from app.celery_app import celery
 from app.tasks.llm_tasks import chat_completion, batch_embeddings
 from app.config import OPENAI_API_KEY, REDIS_URL
+from app.api.proxy import router as proxy_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("llm-api")
@@ -64,8 +65,11 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["X-Session-ID", "X-Task-ID"],
+    expose_headers=["X-Session-ID", "X-Task-ID", "X-Request-ID"],
 )
+
+# Proxy OpenAI compatible
+app.include_router(proxy_router)
 
 
 # ============================================================

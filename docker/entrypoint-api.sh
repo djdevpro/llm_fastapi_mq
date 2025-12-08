@@ -17,3 +17,4 @@ exec uvicorn app.api.main:app \
     --host 0.0.0.0 \
     --port ${PORT:-8007} \
     --workers ${UVICORN_WORKERS:-4}
+
