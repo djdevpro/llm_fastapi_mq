@@ -1,12 +1,12 @@
 # 🚀 LLM Stream API
 
-> **API LLM scalable** avec Celery + Redis pour gérer les requêtes OpenAI en parallèle.
+> **Proxy OpenAI scalable** avec Celery + Redis pour gérer la charge des appels LLM.
 
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.124-green.svg)](https://fastapi.tiangolo.com)
 [![Celery](https://img.shields.io/badge/Celery-5.4-green.svg)](https://docs.celeryq.dev)
 [![Docker](https://img.shields.io/badge/Docker-ready-blue.svg)](https://docker.com)
-[![Tests](https://img.shields.io/badge/tests-passing-success.svg)](tests/)
+[![OpenAI Compatible](https://img.shields.io/badge/OpenAI-compatible-orange.svg)](https://platform.openai.com)
 
 ---
 
@@ -14,29 +14,86 @@
 
 Les appels LLM (OpenAI) prennent **10-60 secondes** et bloquent vos workers HTTP.
 
-**Cette architecture** :
-- ⚡ Retourne **immédiatement** (~100ms)
-- 🔄 Traite en **parallèle** via Celery
-- 📡 Streame via **SSE** (Server-Sent Events)
+**Ce proxy** :
+- ⚡ File d'attente intelligente (Celery)
+- 🔄 Rate limiting centralisé
+- 📡 Streaming SSE temps réel
+- 🔌 **Compatible SDK OpenAI** (drop-in replacement)
 
 ---
 
 ## 📐 Architecture
 
 ```
-┌─────────────┐      POST /chat       ┌─────────────────┐
-│   Client    │ ────────────────────► │    FastAPI      │
-│  (UI:3000)  │ ◄── task_id + session │   (API:8007)    │
-└──────┬──────┘                       └────────┬────────┘
-       │                                       │
-       │ SSE                          ┌────────▼────────┐
-       │                              │     Celery      │
-       │                              │    Workers      │
-       │                              └────────┬────────┘
-       │                                       │
-       │ GET /stream/{session}        ┌────────▼────────┐
-       └──────────────────────────────┤     Redis       │
-                                      └─────────────────┘
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│  SDK OpenAI     │────▶│   PROXY API    │────▶│   Celery/Redis  │
+│  (any language) │     │  /v1/chat/...   │     │   (queue)       │
+└─────────────────┘     └─────────────────┘     └────────┬────────┘
+                                                         │
+                                                  ┌──────▼──────┐
+                                                  │   OpenAI    │
+                                                  └─────────────┘
+```
+
+---
+
+## 🔌 Usage (SDK OpenAI)
+
+### Python
+
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    base_url="http://localhost:8007/v1",  # Proxy
+    api_key="not-needed"
+)
+
+# Streaming
+stream = client.chat.completions.create(
+    model="gpt-4o-mini",
+    messages=[{"role": "user", "content": "Hello!"}],
+    stream=True
+)
+for chunk in stream:
+    print(chunk.choices[0].delta.content or "", end="")
+
+# Non-streaming
+response = client.chat.completions.create(
+    model="gpt-4o-mini",
+    messages=[{"role": "user", "content": "Hello!"}],
+    stream=False
+)
+print(response.choices[0].message.content)
+```
+
+### Node.js
+
+```javascript
+import OpenAI from 'openai';
+
+const client = new OpenAI({
+  baseURL: 'http://localhost:8007/v1',
+  apiKey: 'not-needed'
+});
+
+const stream = await client.chat.completions.create({
+  model: 'gpt-4o-mini',
+  messages: [{ role: 'user', content: 'Hello!' }],
+  stream: true
+});
+
+for await (const chunk of stream) {
+  process.stdout.write(chunk.choices[0]?.delta?.content || '');
+}
+```
+
+### cURL
+
+```bash
+curl http://localhost:8007/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model": "gpt-4o-mini", "messages": [{"role": "user", "content": "Hello!"}]}'
 ```
 
 ---
@@ -45,26 +102,28 @@ Les appels LLM (OpenAI) prennent **10-60 secondes** et bloquent vos workers HTTP
 
 ```
 llm_fastapi_mq/
-├── app/                      # Code source
-│   ├── api/main.py           # FastAPI
+├── app/
+│   ├── api/
+│   │   ├── main.py           # FastAPI
+│   │   └── proxy.py          # Proxy OpenAI compatible
 │   ├── tasks/llm_tasks.py    # Tâches Celery
 │   ├── celery_app.py
 │   └── config.py
 │
-├── docker/                   # Docker
+├── docker/
 │   ├── Dockerfile.api
 │   ├── Dockerfile.worker
-│   ├── entrypoint-api.sh
-│   ├── entrypoint-worker.sh
 │   └── docker-compose.yml
 │
-├── ui/                       # Interface web
+├── ui/                       # Interface chat
 │   ├── chat.html
 │   └── Dockerfile
 │
-├── tests/
-│   └── test_celery.py
+├── examples/
+│   ├── client_openai.py      # Exemple Python
+│   └── client_openai.js      # Exemple Node.js
 │
+├── tests/
 ├── run.sh
 └── requirements.txt
 ```
@@ -89,11 +148,12 @@ CELERY_CONCURRENCY=4
 CELERY_QUEUES=high,default,low
 CELERY_LOGLEVEL=info
 
-# === MONITORING ===
-FLOWER_PORT=5555
-
 # === UI ===
 UI_PORT=3000
+API_URL=http://localhost:8007
+
+# === MONITORING ===
+FLOWER_PORT=5555
 
 # === RATE LIMITING ===
 LLM_RPM=500
@@ -111,45 +171,34 @@ cp .env.example .env
 # 2. Lancer
 ./run.sh start
 
-# 3. Ouvrir
+# 3. Tester
+python examples/client_openai.py
+
+# 4. Ouvrir
 #    UI:   http://localhost:3000
-#    API:  http://localhost:8007
-#    Docs: http://localhost:8007/docs
+#    API:  http://localhost:8007/docs
 ```
 
 ---
 
 ## 📡 Endpoints
 
+### Proxy OpenAI (`/v1`)
+
+| Méthode | Endpoint | Description |
+|---------|----------|-------------|
+| `POST` | `/v1/chat/completions` | Chat (streaming & non-streaming) |
+| `GET` | `/v1/models` | Liste des modèles |
+
+### API interne
+
 | Méthode | Endpoint | Description |
 |---------|----------|-------------|
 | `GET` | `/health` | Health check |
-| `GET` | `/health/full` | Status complet |
 | `POST` | `/chat` | Chat async (Celery) |
-| `GET` | `/chat/{task_id}` | Status tâche |
 | `GET` | `/stream/{session_id}` | Stream SSE |
 | `POST` | `/embeddings` | Batch embeddings |
 | `GET` | `/stats` | Stats queues |
-
-### Exemple
-
-```bash
-# 1. Envoie (retour ~100ms)
-curl -X POST http://localhost:8007/chat \
-  -H "Content-Type: application/json" \
-  -d '{"message": "Hello!", "priority": 5}'
-
-# Réponse:
-{
-  "status": "queued",
-  "task_id": "xxx",
-  "session_id": "yyy",
-  "stream_url": "/stream/yyy"
-}
-
-# 2. Stream SSE
-curl -N http://localhost:8007/stream/yyy
-```
 
 ---
 
@@ -157,10 +206,10 @@ curl -N http://localhost:8007/stream/yyy
 
 | Service | Port | Description |
 |---------|------|-------------|
-| `ui` | 3000 | Interface chat |
-| `api` | 8007 | FastAPI |
+| `api` | 8007 | FastAPI + Proxy OpenAI |
 | `worker` | - | Celery workers |
 | `redis` | - | Broker (interne) |
+| `ui` | 3000 | Interface chat |
 | `flower` | 5555 | Monitoring (optionnel) |
 
 ---
@@ -186,38 +235,31 @@ curl -N http://localhost:8007/stream/yyy
 
 ## 📊 Scaling
 
+```
+Workers = (Requêtes/min) × (Temps moyen/min) / Concurrency
+
+Exemple: 100 req/min × 0.5 min / 4 = 13 workers
+```
+
 | Charge | Workers | Concurrency |
 |--------|---------|-------------|
 | Dev | 1 | 2 |
-| Petit | 2 | 4 |
-| Moyen | 4 | 4 |
-| Prod | 8+ | 4 |
-
-### Priorités
-
-```python
-{"priority": 10}   # → queue "high"
-{"priority": 0}    # → queue "default"  
-{"priority": -10}  # → queue "low"
-```
+| 50 req/min | 4 | 4 |
+| 200 req/min | 10 | 4 |
+| 500 req/min | 25 | 4 |
 
 ---
 
-## 🧪 Tests
+## 🔧 Features
 
-```bash
-pytest tests/test_celery.py -v -s
-```
-
----
-
-## 🔧 Features Celery
-
+- ✅ **Proxy OpenAI compatible** (SDK standard)
+- ✅ File d'attente Celery
 - ✅ Rate limiting (token bucket Redis)
 - ✅ Retry automatique (backoff exponentiel)
-- ✅ 3 queues prioritaires
-- ✅ Timeout 5 min
+- ✅ 3 queues prioritaires (high/default/low)
+- ✅ Streaming SSE
 - ✅ Monitoring Flower
+- ✅ Multi-langage (Python, Node, Go, etc.)
 
 ---
 
