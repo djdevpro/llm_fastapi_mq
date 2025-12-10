@@ -2,9 +2,9 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# Certificats SSL
+# Certificats SSL + dos2unix pour fix CRLF Windows
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates curl \
+    ca-certificates curl dos2unix \
     && rm -rf /var/lib/apt/lists/*
 
 # Dépendances Python
@@ -14,9 +14,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Code source
 COPY app/ ./app/
 
-# Entrypoint
+# Entrypoint (convertir CRLF → LF pour Windows)
 COPY docker/entrypoint-api.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+RUN dos2unix /entrypoint.sh && chmod +x /entrypoint.sh
 
 # Healthcheck
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
@@ -25,4 +25,7 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
 EXPOSE ${PORT:-8007}
 
 ENTRYPOINT ["/entrypoint.sh"]
+
+
+
 

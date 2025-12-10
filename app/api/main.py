@@ -145,14 +145,22 @@ async def chat(request: ChatRequest):
     # Détermine la queue selon priorité
     queue = "high" if request.priority > 5 else "low" if request.priority < -5 else "default"
     
+    # Construire les paramètres OpenAI
+    completion_params = {
+        "model": request.model,
+        "messages": [
+            {"role": "system", "content": request.system_prompt},
+            {"role": "user", "content": request.message}
+        ],
+        "stream": request.stream,
+    }
+    if request.user_id:
+        completion_params["user"] = request.user_id
+    
     task = chat_completion.apply_async(
         kwargs={
             "session_id": session_id,
-            "message": request.message,
-            "model": request.model,
-            "system_prompt": request.system_prompt,
-            "stream": request.stream,
-            "user_id": request.user_id,
+            "completion_params": completion_params,
         },
         queue=queue,
         priority=request.priority + 10,
@@ -249,7 +257,7 @@ async def create_embeddings(request: EmbeddingsRequest):
         raise HTTPException(400, "Maximum 100 textes par requête")
     
     task = batch_embeddings.apply_async(
-        kwargs={"texts": request.texts, "model": request.model, "user_id": request.user_id}
+        kwargs={"texts": request.texts, "model": request.model}
     )
     
     return {"status": "queued", "task_id": task.id, "status_url": f"/embeddings/{task.id}"}

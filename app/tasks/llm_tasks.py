@@ -122,14 +122,14 @@ def get_limiter():
 def chat_completion(
     self,
     session_id: str,
-    message: str,
-    model: str = "gpt-4o-mini",
-    system_prompt: str = "Tu es un assistant utile et concis.",
-    stream: bool = True,
-    user_id: Optional[str] = None,
+    completion_params: dict,
 ) -> dict:
     """
     Tâche Celery pour chat completion.
+    
+    Accepte TOUS les paramètres OpenAI via completion_params (passés directement à l'API).
+    Supporte: model, messages, temperature, max_tokens, response_format, reasoning_effort,
+    tools, tool_choice, stream, top_p, frequency_penalty, presence_penalty, stop, seed, etc.
     
     Publie les chunks en temps réel sur Redis pub/sub.
     Channel: llm:stream:{session_id}
@@ -151,15 +151,14 @@ def chat_completion(
             raise Exception("Rate limit timeout - trop de requêtes")
         
         client = get_openai()
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": message}
-        ]
+        
+        # Extraire stream pour la logique interne
+        stream = completion_params.get("stream", False)
         
         if stream:
-            return _stream_completion(client, messages, model, session_id, channel, redis_client)
+            return _stream_completion(client, completion_params, session_id, channel, redis_client)
         else:
-            return _sync_completion(client, messages, model, session_id, channel, redis_client)
+            return _sync_completion(client, completion_params, session_id, channel, redis_client)
             
     except SoftTimeLimitExceeded:
         logger.warning(f"Task {session_id} timeout")
@@ -178,20 +177,21 @@ def chat_completion(
         raise
 
 
-def _stream_completion(client, messages, model, session_id, channel, redis_client) -> dict:
-    """Streaming completion avec publication Redis."""
-    stream = client.chat.completions.create(
-        model=model,
-        messages=messages,
-        stream=True
-    )
+def _stream_completion(client, completion_params: dict, session_id: str, channel: str, redis_client) -> dict:
+    """
+    Streaming completion avec publication Redis.
+    
+    Passe TOUS les paramètres OpenAI directement à l'API.
+    """
+    model = completion_params.get("model", "gpt-4o-mini")
+    stream = client.chat.completions.create(**completion_params)
     
     full_response = ""
     chunks_count = 0
     
     for chunk in stream:
-        content = chunk.choices[0].delta.content or ""
-        if content:
+        if chunk.choices and chunk.choices[0].delta.content:
+            content = chunk.choices[0].delta.content
             full_response += content
             chunks_count += 1
             redis_client.publish(channel, json.dumps({
@@ -215,9 +215,15 @@ def _stream_completion(client, messages, model, session_id, channel, redis_clien
     }
 
 
-def _sync_completion(client, messages, model, session_id, channel, redis_client) -> dict:
-    """Completion synchrone."""
-    response = client.chat.completions.create(model=model, messages=messages)
+def _sync_completion(client, completion_params: dict, session_id: str, channel: str, redis_client) -> dict:
+    """
+    Completion synchrone.
+    
+    Passe TOUS les paramètres OpenAI directement à l'API.
+    """
+    model = completion_params.get("model", "gpt-4o-mini")
+    response = client.chat.completions.create(**completion_params)
+    
     content = response.choices[0].message.content
     
     redis_client.publish(channel, json.dumps({
@@ -225,24 +231,40 @@ def _sync_completion(client, messages, model, session_id, channel, redis_client)
         "content": content
     }))
     
+    # Construire usage si disponible
+    usage = None
+    if response.usage:
+        usage = {
+            "prompt_tokens": response.usage.prompt_tokens,
+            "completion_tokens": response.usage.completion_tokens,
+            "total_tokens": response.usage.total_tokens,
+        }
+        # Ajouter les nouveaux champs si présents (reasoning tokens, etc.)
+        if hasattr(response.usage, "completion_tokens_details") and response.usage.completion_tokens_details:
+            usage["completion_tokens_details"] = response.usage.completion_tokens_details.model_dump()
+        if hasattr(response.usage, "prompt_tokens_details") and response.usage.prompt_tokens_details:
+            usage["prompt_tokens_details"] = response.usage.prompt_tokens_details.model_dump()
+    
     return {
         "session_id": session_id,
         "response": content,
         "model": model,
-        "usage": {
-            "prompt_tokens": response.usage.prompt_tokens,
-            "completion_tokens": response.usage.completion_tokens,
-            "total_tokens": response.usage.total_tokens
-        }
+        "usage": usage,
+        # Retourner la réponse complète pour accès aux métadonnées
+        "full_response": response.model_dump()
     }
 
 
-@shared_task(bind=True, max_retries=1)
+@shared_task(
+    bind=True,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    max_retries=2,
+)
 def batch_embeddings(
     self,
     texts: list[str],
     model: str = "text-embedding-3-small",
-    user_id: Optional[str] = None,
 ) -> dict:
     """Génère des embeddings en batch."""
     limiter = get_limiter()

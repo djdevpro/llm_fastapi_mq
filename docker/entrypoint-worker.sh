@@ -20,3 +20,6 @@ exec celery -A app.celery_app worker \
     --queues=${CELERY_QUEUES:-high,default,low} \
     --hostname=worker@%h
 
+
+
+

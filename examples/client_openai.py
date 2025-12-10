@@ -101,17 +101,103 @@ def chat_conversation():
 
 
 # ============================================================
-# EXEMPLE 4: Liste des modèles
+# EXEMPLE 4: JSON Format (response_format)
+# ============================================================
+
+def chat_json_format():
+    print("=" * 50)
+    print("EXEMPLE 4: JSON Format")
+    print("=" * 50)
+    
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {
+                "role": "system", 
+                "content": "Tu es un assistant qui répond UNIQUEMENT en JSON valide."
+            },
+            {
+                "role": "user", 
+                "content": "Donne-moi 3 films de science-fiction avec leur année et note sur 10."
+            }
+        ],
+        response_format={"type": "json_object"},
+        stream=False
+    )
+    
+    import json
+    content = response.choices[0].message.content
+    print(f"Réponse brute: {content}")
+    
+    # Parser le JSON
+    data = json.loads(content)
+    print(f"Réponse parsée: {json.dumps(data, indent=2, ensure_ascii=False)}")
+    print()
+
+
+# ============================================================
+# EXEMPLE 5: JSON Schema (structured outputs)
+# ============================================================
+
+def chat_json_schema():
+    print("=" * 50)
+    print("EXEMPLE 5: JSON Schema (Structured Outputs)")
+    print("=" * 50)
+    
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "user", "content": "Génère un utilisateur fictif."}
+        ],
+        response_format={
+            "type": "json_schema",
+            "json_schema": {
+                "name": "user",
+                "strict": True,
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "nom": {"type": "string"},
+                        "age": {"type": "integer"},
+                        "email": {"type": "string"},
+                        "hobbies": {
+                            "type": "array",
+                            "items": {"type": "string"}
+                        }
+                    },
+                    "required": ["nom", "age", "email", "hobbies"],
+                    "additionalProperties": False
+                }
+            }
+        },
+        stream=False
+    )
+    
+    import json
+    content = response.choices[0].message.content
+    data = json.loads(content)
+    
+    print(f"Utilisateur généré:")
+    print(f"  Nom: {data['nom']}")
+    print(f"  Age: {data['age']}")
+    print(f"  Email: {data['email']}")
+    print(f"  Hobbies: {', '.join(data['hobbies'])}")
+    print()
+
+
+# ============================================================
+# EXEMPLE 6: Liste des modèles
 # ============================================================
 
 def list_models():
     print("=" * 50)
-    print("EXEMPLE 4: Liste des modèles")
+    print("EXEMPLE 6: Liste des modèles")
     print("=" * 50)
     
     models = client.models.list()
-    for model in models.data:
+    for model in models.data[:10]:  # Limiter à 10
         print(f"  - {model.id}")
+    print("  ...")
     print()
 
 
@@ -123,15 +209,13 @@ if __name__ == "__main__":
     print("\n🚀 Client OpenAI → Proxy local (http://localhost:8007/v1)\n")
     
     # Liste des modèles
-    list_models()
+    #list_models()
+
+    # JSON format
+    chat_json_format()
     
-    # Chat simple
-    chat_simple()
+    # JSON schema (structured outputs)
+    chat_json_schema()
     
-    # Chat streaming
-    chat_streaming()
-    
-    # Conversation
-    chat_conversation()
     
     print("✅ Terminé!")
