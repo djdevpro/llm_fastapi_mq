@@ -184,9 +184,40 @@ usage() {
     echo "  scale <n>     Scale les workers Celery"
     echo "  monitoring    Démarre avec Flower (port 5555)"
     echo "  test          Test les endpoints API"
+    echo "  loadtest      Test de charge avec monitoring Docker"
     echo "  build         Build les images"
     echo "  clean         Supprime tout (containers, volumes, images)"
     echo ""
+}
+
+# ───────────────────────────────────────────────────────────────
+# Load Test avec monitoring
+# ───────────────────────────────────────────────────────────────
+
+loadtest() {
+    log_info "Test de charge avec monitoring Docker..."
+    
+    # Vérifier que les services tournent
+    if ! docker ps | grep -q "llm-api"; then
+        log_error "Services non démarrés. Lancez d'abord: ./run.sh start"
+        exit 1
+    fi
+    
+    # Vérifier/installer les dépendances de test
+    if ! python -c "import pytest_asyncio" 2>/dev/null; then
+        log_warn "Installation des dépendances de test..."
+        pip install pytest pytest-asyncio httpx docker
+    fi
+    
+    # Lancer les tests (depuis l'hôte, appelle l'API Docker)
+    echo ""
+    echo "  Tests disponibles:"
+    echo "    -k 'test_load_10'   # 10 requêtes"
+    echo "    -k 'test_load_25'   # 25 requêtes"
+    echo "    -k 'test_load_50'   # 50 requêtes"
+    echo "    -k 'test_memory'    # Profil mémoire"
+    echo ""
+    python -m pytest tests/test_load_monitoring.py -v -s "$@"
 }
 
 # ───────────────────────────────────────────────────────────────
@@ -204,6 +235,7 @@ case "${1:-}" in
     scale)        scale "$@" ;;
     monitoring)   monitoring ;;
     test)         test_api ;;
+    loadtest)     shift; loadtest "$@" ;;
     build)        build ;;
     clean)        clean ;;
     *)            usage ;;

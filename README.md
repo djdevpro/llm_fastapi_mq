@@ -143,8 +143,9 @@ REDIS_URL=redis://redis:6379/0
 PORT=8007
 UVICORN_WORKERS=4
 
-# === CELERY ===
-CELERY_CONCURRENCY=4
+# === CELERY (gevent pool) ===
+CELERY_POOL=gevent
+CELERY_CONCURRENCY=100
 CELERY_QUEUES=high,default,low
 CELERY_LOGLEVEL=info
 
@@ -155,8 +156,8 @@ API_URL=http://localhost:8007
 # === MONITORING ===
 FLOWER_PORT=5555
 
-# === RATE LIMITING (Celery natif) ===
-CELERY_RATE_LIMIT=100/m
+# === RATE LIMITING (selon tier OpenAI) ===
+CELERY_RATE_LIMIT=500/m
 ```
 
 ---

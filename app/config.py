@@ -28,7 +28,10 @@ RESULT_BACKEND = os.getenv("RESULT_BACKEND", REDIS_URL).strip()
 # CELERY - RATE LIMITING (natif Celery)
 # ============================================================
 # Format: "100/m" (par minute), "10/s" (par seconde), "1000/h" (par heure)
-CELERY_RATE_LIMIT = os.getenv("CELERY_RATE_LIMIT", "100/m").strip()
+# Doit être cohérent avec CELERY_CONCURRENCY !
+# Exemple: 100 concurrency × 12 tâches/min/greenlet = 1200/m théorique
+# Ajuster selon ton tier OpenAI (500 RPM pour tier 1, etc.)
+CELERY_RATE_LIMIT = os.getenv("CELERY_RATE_LIMIT", "500/m").strip()
 
 # ============================================================
 # CELERY - TASK SETTINGS
@@ -42,10 +45,15 @@ CELERY_RETRY_BACKOFF_MAX = int(os.getenv("CELERY_RETRY_BACKOFF_MAX", "60"))  # s
 # ============================================================
 # CELERY - WORKER SETTINGS
 # ============================================================
-CELERY_CONCURRENCY = int(os.getenv("CELERY_CONCURRENCY", "4"))
+# Pool: prefork (multi-process), threads (I/O-bound), gevent (scaling massif)
+# Pour les appels LLM (100% I/O-bound), gevent est optimal
+CELERY_POOL = os.getenv("CELERY_POOL", "gevent").strip()
+CELERY_CONCURRENCY = int(os.getenv("CELERY_CONCURRENCY", "100"))
 CELERY_PREFETCH_MULTIPLIER = int(os.getenv("CELERY_PREFETCH_MULTIPLIER", "1"))
 CELERY_QUEUES = os.getenv("CELERY_QUEUES", "high,default,low").strip()
 CELERY_LOGLEVEL = os.getenv("CELERY_LOGLEVEL", "info").strip()
+# Max mémoire par child (prefork uniquement, en KB, 0=désactivé)
+CELERY_MAX_MEMORY_PER_CHILD = int(os.getenv("CELERY_MAX_MEMORY_PER_CHILD", "0"))
 
 # ============================================================
 # API SETTINGS

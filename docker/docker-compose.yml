@@ -15,9 +15,17 @@ services:
       redis:
         condition: service_healthy
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
 
   # ===========================================
-  # Celery Worker
+  # Celery Worker (gevent pool)
   # ===========================================
   worker:
     build:
@@ -33,7 +41,11 @@ services:
     deploy:
       resources:
         limits:
+          cpus: '2'
           memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 256M
 
   # ===========================================
   # Celery Worker High Priority (optionnel)
@@ -48,29 +60,45 @@ services:
     environment:
       # Override pour écouter UNIQUEMENT la queue high
       - CELERY_QUEUES=high
-      - CELERY_CONCURRENCY=2
+      - CELERY_CONCURRENCY=50
     depends_on:
       redis:
         condition: service_healthy
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
     profiles:
       - priority
 
   # ===========================================
-  # Redis (toujours requis pour pub/sub + results)
+  # Redis (broker + pub/sub + results)
   # ===========================================
   redis:
     image: redis:7-alpine
     container_name: llm-redis
     volumes:
       - redis_data:/data
-    command: redis-server --appendonly yes
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 300M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
 
   # ===========================================
   # Web UI (chat.html)
@@ -88,6 +116,14 @@ services:
       - api
       - worker
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 64M
+        reservations:
+          cpus: '0.05'
+          memory: 16M
 
   # ===========================================
   # Flower (monitoring) - optionnel
@@ -104,6 +140,14 @@ services:
     depends_on:
       - redis
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
     profiles:
       - monitoring
 

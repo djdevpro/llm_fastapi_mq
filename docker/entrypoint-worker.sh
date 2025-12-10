@@ -6,20 +6,18 @@ set -e
 # ============================================================
 
 echo "========================================"
-echo "  LLM Worker - Celery"
+echo "  LLM Worker - Celery + Gevent"
 echo "========================================"
-echo "  Concurrency:     ${CELERY_CONCURRENCY:-4}"
+echo "  Pool:            ${CELERY_POOL:-gevent}"
+echo "  Concurrency:     ${CELERY_CONCURRENCY:-100}"
 echo "  Queues:          ${CELERY_QUEUES:-high,default,low}"
 echo "  Loglevel:        ${CELERY_LOGLEVEL:-info}"
 echo "  Redis:           ${REDIS_URL:-redis://localhost:6379/0}"
 echo "========================================"
 
 exec celery -A app.celery_app worker \
+    --pool=${CELERY_POOL:-gevent} \
     --loglevel=${CELERY_LOGLEVEL:-info} \
-    --concurrency=${CELERY_CONCURRENCY:-4} \
+    --concurrency=${CELERY_CONCURRENCY:-100} \
     --queues=${CELERY_QUEUES:-high,default,low} \
     --hostname=worker@%h
-
-
-
-
